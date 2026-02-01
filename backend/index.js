@@ -2,6 +2,9 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const User = require('./models/User');
 const Book = require('./models/Book');
@@ -14,9 +17,29 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = 3000;
-const MONGO_URI = 'mongodb://localhost:27017/library_db';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/library_db';
 
-// Connect to MongoDB (Removed deprecated options)
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Multer Config
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/');
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + path.extname(file.originalname)); // unique filename
+    }
+});
+const upload = multer({ storage: storage });
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Connect to MongoDB
 if (process.env.NODE_ENV !== 'test') {
     mongoose.connect(MONGO_URI)
         .then(() => {
@@ -37,7 +60,7 @@ async function seedData() {
         // FORCE UPSERT ADMIN (Ensures password is '123')
         await User.findOneAndUpdate(
             { email: 'admin' },
-            { name: 'Admin User', email: 'admin', password: '123' },
+            { name: 'Admin User', email: 'admin', password: '123', isAdmin: true },
             { upsert: true, new: true }
         );
         console.log('🔒 Admin User Ensure: email=admin, pass=123');
@@ -70,6 +93,20 @@ async function seedData() {
 
 // --- API Endpoints ---
 
+// 0. Upload Endpoint
+app.post('/upload', upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+        // Return relative path
+        const imageUrl = `/uploads/${req.file.filename}`;
+        res.json({ imageUrl });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 1. Signup Endpoint
 app.post('/signup', async (req, res) => {
     const { name, email, password } = req.body;
@@ -93,7 +130,7 @@ app.post('/login', async (req, res) => {
 
         // Return isAdmin flag if email is 'admin'
         const isAdmin = user.email === 'admin';
-        res.json({ message: 'Login successful', userId: user._id, name: user.name, isAdmin });
+        res.json({ message: 'Login successful', userId: user._id, name: user.name, email: user.email, avatar: user.avatar, isAdmin });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -191,6 +228,38 @@ app.get('/history/:userId', async (req, res) => {
     }
 });
 
+// 6.5 Update User Profile (Name, Email, Password)
+app.put('/users/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, email, password, avatar } = req.body;
+    try {
+        const updateData = { name, email, avatar };
+        if (password && password.trim() !== '') {
+            updateData.password = password; // In production, hash this!
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(
+            id,
+            updateData,
+            { new: true }
+        );
+
+        if (!updatedUser) return res.status(404).json({ error: 'User not found' });
+
+        res.json({
+            message: 'Profile updated successfully',
+            user: {
+                _id: updatedUser._id,
+                name: updatedUser.name,
+                email: updatedUser.email,
+                avatar: updatedUser.avatar
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- ADMIN API ---
 
 // 7. Get All Users (Admin)
@@ -205,16 +274,50 @@ app.get('/admin/users', async (req, res) => {
 
 // 8. Add Book (Admin)
 app.post('/admin/books', async (req, res) => {
-    const { title, author, image } = req.body;
+    const { title, author, image, description } = req.body;
     try {
         if (!title || !author) return res.status(400).json({ error: 'Title and Author required' });
         const newBook = await Book.create({
             title,
             author,
             image: image || '',
+            description: description || 'No description available.',
             status: 'available'
         });
         res.json(newBook);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 10. Update Book (Admin)
+app.put('/admin/books/:id', async (req, res) => {
+    const { id } = req.params;
+    const { title, author, image, description } = req.body;
+    try {
+        const updatedBook = await Book.findByIdAndUpdate(
+            id,
+            { title, author, image, description },
+            { new: true }
+        );
+        if (!updatedBook) return res.status(404).json({ error: 'Book not found' });
+        res.json(updatedBook);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 11. Delete Book (Admin)
+app.delete('/admin/books/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const deletedBook = await Book.findByIdAndDelete(id);
+        if (!deletedBook) return res.status(404).json({ error: 'Book not found' });
+
+        // Optional: Clean up related transactions?
+        // await BorrowTransaction.deleteMany({ book_id: id });
+
+        res.json({ message: 'Book deleted successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

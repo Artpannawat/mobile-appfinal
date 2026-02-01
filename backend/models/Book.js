@@ -5,6 +5,7 @@ const bookSchema = new mongoose.Schema({
     title: { type: String, required: true },
     author: { type: String, required: true },
     image: { type: String, default: '' },
+    description: { type: String, default: 'No description available.' },
     status: {
         type: String,
         enum: ['available', 'borrowed'],
