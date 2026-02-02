@@ -1,47 +1,47 @@
-# 🐞 Bug Report & Fixes (บันทึกข้อผิดพลาดและการแก้ไข)
+# 🐞 บันทึกข้อผิดพลาดและการแก้ไข (Bug Report & Fixes)
 
-## 🚨 Critical Issue: Error 500 on "My History"
+## 🚨 ปัญหาสำคัญ: Error 500 ในหน้า "ประวัติการยืม" (My History)
 
-### 🔴 Problem (อาการ)
-User reported a **500 Internal Server Error** when accessing the "My Shelf > History" tab.
-*   **Cause:** The application crashed when attempting to display a transaction for a book that had been **deleted** by the Admin.
-*   **Technical Detail:** The MongoDB query used `.populate('book_id')`. When the referenced book document was missing, Mongoose returned `null` for `book_id`. The code then tried to access `t.book_id.title`, resulting in a runtime crash (`Cannot read properties of null`).
+### 🔴 ปัญหาที่พบ (Problem)
+ผู้ใช้งานรายงานว่าพบ **Error 500 (Internal Server Error)** เมื่อกดเข้าไปดูแท็บ "My Shelf > History"
+*   **สาเหตุ:** ระบบล่ม (Crash) เมื่อพยายามแสดงผลรายการยืมของหนังสือที่ **ถูกลบออกจากฐานข้อมูลไปแล้ว** (Deleted Book) โดยผู้ดูแลระบบ
+*   **รายละเอียดทางเทคนิค:** การดึงข้อมูลด้วย MongoDB ใช้คำสั่ง `.populate('book_id')` แต่เมื่อหนังสือต้นทางหายไป Mongoose จะคืนค่า `book_id` เป็น `null` ทำให้โค้ดที่พยายามอ่านชื่อหนังสือ (`t.book_id.title`) เกิด Error ว่า "Cannot read properties of null"
 
-### 🟢 Solution (การแก้ไข)
-Implemented a "Sanitization Layer" in the Backend API (`GET /history/:userId`).
+### 🟢 วิธีการแก้ไข (Solution)
+ได้เพิ่มระบบกรองข้อมูล (Sanitization Layer) ที่ฝั่ง Backend API (`GET /history/:userId`)
 
-1.  **Added Null Check:**
+1.  **เพิ่มการตรวจสอบค่า Null (Null Check):**
     ```javascript
-    // Filter out transactions where the book might have been deleted (book_id is null)
+    // กรองรายการตกค้างที่หนังสือถูกลบไปแล้วออก (book_id เป็น null)
     const validTransactions = transactions.filter(t => {
         if (!t.book_id) console.warn(`Found orphan transaction: ${t._id}`);
         return t.book_id;
     });
     ```
-    The system now automatically detects and hides broken transactions instead of crashing.
+    ระบบจะทำการตรวจจับและซ่อนรายการที่เสียหายให้อัตโนมัติ แทนที่จะปล่อยให้แอปพลิเคชันพัง
 
-2.  **Container Rebuild:**
-    Forced a Docker container rebuild to ensure the patch was applied to the live environment.
-
----
-
-## 🔎 Improvement: Search Responsiveness
-
-### 🔴 Problem
-Search functionality was slow and did not sort results intuitively.
-
-### 🟢 Solution
-1.  **Backend:** Added `.sort({ title: 1 })` to the search query to ensure results appear alphabetically.
-2.  **Frontend:** Reduced "Debounce" time from 500ms to **150ms**, making the search feel instant while still protecting the server from spam.
+2.  **Rebuild Container:**
+    ได้ทำการ Rebuild Docker Container ใหม่ เพื่อให้แน่ใจว่าโค้ดที่แก้ไข (Patch) ถูกนำไปใช้งานจริงบนเซิร์ฟเวอร์
 
 ---
 
-## 📱 Improvement: Mobile Responsiveness
+## 🔎 การปรับปรุง: ความไวในการค้นหา (Search Responsiveness)
 
-### 🔴 Problem
-Tab Bar at the bottom was overlapping with system gesture bars on some mobile phones.
+### 🔴 ปัญหาที่พบ
+การค้นหาหนังสือทำงานช้า ไม่ทันใจ และผลลัพธ์ไม่เรียงลำดับ ทำให้หาหนังสือยาก
 
-### 🟢 Solution
-Adjusted `tabBarStyle` in `_layout.tsx`:
-*   Increased `height` to `80`.
-*   Added `paddingBottom: 20` to create safe space for home indicators.
+### 🟢 วิธีการแก้ไข
+1.  **Backend:** เพิ่มคำสั่ง `.sort({ title: 1 })` ในการค้นหา เพื่อให้ผลลัพธ์เรียงตามตัวอักษร A-Z เสมอ
+2.  **Frontend:** ลดระยะเวลาหน่วงการส่งข้อมูล (Debounce) จาก 500ms เหลือ **150ms** ทำให้การค้นหารู้สึก "ทันที" (Instant) มากขึ้น แต่ยังคงป้องกันการยิง Request รัวๆ ถล่มเซิร์ฟเวอร์ได้อยู่
+
+---
+
+## 📱 การปรับปรุง: การแสดงผลบนมือถือ (Mobile Responsiveness)
+
+### 🔴 ปัญหาที่พบ
+แถบเมนูด้านล่าง (Tab Bar) ซ้อนทับกับขีด Home Indicator ของระบบ iOS/Android บางรุ่น ทำให้กดยาก
+
+### 🟢 วิธีการแก้ไข
+ปรับแก้ `tabBarStyle` ในไฟล์ `_layout.tsx`:
+*   เพิ่มความสูง (`height`) เป็น `80`
+*   เพิ่มระยะห่างด้านล่าง (`paddingBottom: 20`) เพื่อเว้นที่ปลอดภัย (Safe Area) สำหรับแถบ Home Indicator

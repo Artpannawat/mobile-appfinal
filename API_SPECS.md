@@ -1,70 +1,71 @@
-# 📡 API Specification (API Specs)
+# 📡 รายละเอียด API (API Specifications)
 
 **Base URL:** `http://localhost:3000`
+**Source File:** [backend/index.js](file:///d:/finalmoble/mobile-appfinal/backend/index.js)
 
 ---
 
-## 🟢 Public / User Endpoints
+## 🟢 สำหรับผู้ใช้งานทั่วไป (Public / User Endpoints)
 
-### 1. Authentication
-*   **POST** `/signup`
+### 1. การยืนยันตัวตน (Authentication)
+*   **POST** `/signup` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L111)
     *   **Body:** `{ "name": "...", "email": "...", "password": "..." }`
-    *   **Desc:** Register a new user.
-*   **POST** `/login`
+    *   **คำอธิบาย:** ลงทะเบียนสมาชิกใหม่
+*   **POST** `/login` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L125)
     *   **Body:** `{ "email": "...", "password": "..." }`
-    *   **Desc:** Authenticate user and return token/info (including `isAdmin` flag).
+    *   **คำอธิบาย:** เข้าสู่ระบบ และรับค่า Token/Info (รวมถึงสถานะ `isAdmin`)
 
-### 2. Books & Search
-*   **GET** `/books`
-    *   **Query:** `?search=keyword` (Optional)
-    *   **Desc:** Get all available books. Supports case-insensitive search by Title or Author. Sorted by Title (A-Z).
+### 2. หนังสือและการค้นหา (Books & Search)
+*   **GET** `/books` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L140)
+    *   **Query:** `?search=keyword` (ระบุหรือไม่ก็ได้)
+    *   **คำอธิบาย:** ดึงข้อมูลหนังสือทั้งหมด รองรับการค้นหาด้วย ชื่อเรื่อง หรือ ผู้แต่ง (ไม่สนใจตัวพิมพ์เล็ก/ใหญ่) เรียงลำดับตามตัวอักษร
 
-### 3. Borrowing System
-*   **POST** `/borrow`
+### 3. ระบบยืม-คืน (Borrowing System)
+*   **POST** `/borrow` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L163)
     *   **Body:** `{ "userId": "...", "bookId": "..." }`
-    *   **Desc:** Request to borrow a book. Sets status to `pending`.
-*   **POST** `/return`
+    *   **คำอธิบาย:** ส่งคำร้องขอยืมหนังสือ (สถานะหนังสือจะเปลี่ยนเป็น `pending`)
+*   **POST** `/return` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L194)
     *   **Body:** `{ "userId": "...", "bookId": "..." }`
-    *   **Desc:** Request to return a borrowed book. Sets status to `return_pending`.
-*   **GET** `/history/:userId`
-    *   **Desc:** Get borrow history for a specific user.
-    *   **Note:** Includes filtering for "Orphan Transactions" (where book data was deleted) to prevent crashes.
+    *   **คำอธิบาย:** ส่งคำร้องขอคืนหนังสือ (สถานะหนังสือจะเปลี่ยนเป็น `return_pending`)
+*   **GET** `/history/:userId` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L289)
+    *   **คำอธิบาย:** ดึงประวัติการยืม-คืนของผู้ใช้คนนั้นๆ
+    *   **หมายเหตุ:** มีระบบป้องกัน Error "Orphan Transactions" (กรณีหนังสือถูกลบไปแล้ว แต่ประวัติยังอยู่)
 
-### 4. User Profile
-*   **PUT** `/users/:id`
+### 4. โปรไฟล์ผู้ใช้ (User Profile)
+*   **PUT** `/users/:id` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L341)
     *   **Body:** `{ "name": "...", "email": "...", "password": "...", "avatar": "..." }`
-    *   **Desc:** Update user profile information.
-*   **POST** `/upload`
-    *   **Body:** `FormData` with `image` file.
-    *   **Desc:** Upload profile picture. Returns `{ "imageUrl": "..." }`.
+    *   **คำอธิบาย:** อัปเดตข้อมูลส่วนตัว
+*   **POST** `/upload` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L97)
+    *   **Body:** `FormData` พร้อมไฟล์ `image`
+    *   **คำอธิบาย:** อัปโหลดรูปโปรไฟล์ ได้รับค่าตอบกลับเป็น `{ "imageUrl": "..." }`
 
 ---
 
-## 🛡️ Admin Endpoints
+## 🛡️ สำหรับผู้ดูแลระบบ (Admin Endpoints)
 
-### 1. Dashboard & Management
-*   **GET** `/admin/users`
-    *   **Desc:** List all registered users (excluding admin).
-*   **GET** `/admin/borrows`
-    *   **Desc:** List all active transactions (pending, approved, return_pending). Includes calculated `dueDate`.
+### 1. แดชบอร์ดและการจัดการ (Dashboard & Management)
+*   **GET** `/admin/users` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L375)
+    *   **คำอธิบาย:** ดูรายชื่อสมาชิกทั้งหมด (ไม่รวม Admin)
+*   **GET** `/admin/borrows` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L432)
+    *   **คำอธิบาย:** ดูรายการยืม-คืนที่ "กำลังดำเนินการ" ทั้งหมด (รออนุมัติ, อนุมัติแล้ว, รอคืน) พร้อมวันกำหนดส่งคืน (`dueDate`)
 
-### 2. Transaction Actions
-*   **POST** `/admin/borrow/approve`
+### 2. การจัดการธุรกรรม (Transaction Actions)
+*   **POST** `/admin/borrow/approve` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L219)
     *   **Body:** `{ "transactionId": "..." }`
-    *   **Desc:** Approve a borrow request. Sets `dueDate` to +7 days.
-*   **POST** `/admin/borrow/reject`
+    *   **คำอธิบาย:** อนุมัติการยืม (กำหนดวันคืนเป็น +7 วัน)
+*   **POST** `/admin/borrow/reject` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L247)
     *   **Body:** `{ "transactionId": "..." }`
-    *   **Desc:** Reject a borrow request. Returns book to `available`.
-*   **POST** `/admin/return/confirm`
+    *   **คำอธิบาย:** ปฏิเสธการยืม (สถานะหนังสือกลับเป็น `available`)
+*   **POST** `/admin/return/confirm` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L268)
     *   **Body:** `{ "transactionId": "..." }`
-    *   **Desc:** Confirm a book return. Sets book to `available`.
+    *   **คำอธิบาย:** ยืนยันการรับคืนหนังสือ (สถานะหนังสือกลับเป็น `available`)
 
-### 3. Book Management
-*   **POST** `/admin/books`
+### 3. การจัดการหนังสือ (Book Management)
+*   **POST** `/admin/books` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L385)
     *   **Body:** `{ "title": "...", "author": "...", "image": "...", "description": "..." }`
-    *   **Desc:** Add a new book to the library.
-*   **PUT** `/admin/books/:id`
-    *   **Desc:** Update details of an existing book.
-*   **DELETE** `/admin/books/:id`
-    *   **Desc:** Delete a book from the system. 
-    *   **Note:** If a book is deleted while being borrowed, it will no longer appear in the global list, and the user's history will safely ignore the broken reference.
+    *   **คำอธิบาย:** เพิ่มหนังสือใหม่เข้าสู่ระบบ
+*   **PUT** `/admin/books/:id` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L403)
+    *   **คำอธิบาย:** แก้ไขรายละเอียดหนังสือ
+*   **DELETE** `/admin/books/:id` 🔗 [Code](file:///d:/finalmoble/mobile-appfinal/backend/index.js#L420)
+    *   **คำอธิบาย:** ลบหนังสือออกจากระบบ
+    *   **หมายเหตุ:** หากลบหนังสือที่กำลังถูกยืม ระบบประวัติการยืมของผู้ใช้จะข้ามรายการนั้นไปโดยอัตโนมัติ เพื่อไม่ให้แอปพลิเคชันค้าง (Crash)
