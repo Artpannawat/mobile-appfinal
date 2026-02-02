@@ -8,7 +8,7 @@ const bookSchema = new mongoose.Schema({
     description: { type: String, default: 'No description available.' },
     status: {
         type: String,
-        enum: ['available', 'borrowed'],
+        enum: ['available', 'borrowed', 'pending'],
         default: 'available'
     }
 });

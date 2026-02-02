@@ -136,17 +136,30 @@ app.post('/login', async (req, res) => {
     }
 });
 
-// 3. Get All Books
+// 3. Get All Books (with Search)
 app.get('/books', async (req, res) => {
     try {
-        const books = await Book.find();
+        const { search } = req.query;
+        console.log('Search Request:', search); // Debug Log
+        let query = {};
+        if (search) {
+            query = {
+                $or: [
+                    { title: { $regex: search, $options: 'i' } },
+                    { author: { $regex: search, $options: 'i' } }
+                ]
+            };
+        }
+        const books = await Book.find(query).sort({ title: 1 });
+        console.log(`Found ${books.length} books`); // Debug Log
         res.json(books);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// 4. Borrow Book
+// 4. Request Borrow Book (User)
 app.post('/borrow', async (req, res) => {
     const { userId, bookId } = req.body;
     if (!userId || !bookId) return res.status(400).json({ error: 'userId and bookId required' });
@@ -159,23 +172,25 @@ app.post('/borrow', async (req, res) => {
         const user = await User.findOne({ _id: userId });
         if (!user) throw new Error('User not found');
 
-        book.status = 'borrowed';
+        // Set book status to 'pending' to reserve it
+        book.status = 'pending';
         await book.save();
 
         const transaction = new BorrowTransaction({
             user_id: userId,
             book_id: bookId,
-            borrowDate: new Date()
+            status: 'pending',
+            requestDate: new Date()
         });
         await transaction.save();
 
-        res.json({ message: 'Book borrowed successfully', transaction });
+        res.json({ message: 'Borrow request submitted', transaction });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
 });
 
-// 5. Return Book
+// 5. Request Return Book (User)
 app.post('/return', async (req, res) => {
     const { userId, bookId } = req.body;
     if (!userId || !bookId) return res.status(400).json({ error: 'userId and bookId required' });
@@ -184,46 +199,140 @@ app.post('/return', async (req, res) => {
         const transaction = await BorrowTransaction.findOne({
             user_id: userId,
             book_id: bookId,
-            returnDate: { $exists: false }
+            status: 'approved'
         });
 
-        if (!transaction) throw new Error('No active borrow transaction found');
+        if (!transaction) throw new Error('No active approved borrow transaction found');
 
-        transaction.returnDate = new Date();
+        transaction.status = 'return_pending';
         await transaction.save();
 
-        const book = await Book.findOne({ _id: bookId });
-        if (book) {
-            book.status = 'available';
-            await book.save();
-        }
-
-        res.json({ message: 'Book returned successfully' });
+        res.json({ message: 'Return request submitted', transaction });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
 });
 
-// 6. Get My Books / History (With Date)
+// --- NEW ADMIN ENDPOINTS ---
+
+// Admin Approve Borrow
+app.post('/admin/borrow/approve', async (req, res) => {
+    const { transactionId } = req.body;
+    try {
+        const transaction = await BorrowTransaction.findById(transactionId).populate('book_id');
+        if (!transaction) throw new Error('Transaction not found');
+        if (transaction.status !== 'pending') throw new Error('Transaction is not pending');
+
+        const borrowDate = new Date();
+        const dueDate = new Date();
+        dueDate.setDate(borrowDate.getDate() + 7); // 7 Days
+
+        transaction.status = 'approved';
+        transaction.borrowDate = borrowDate;
+        transaction.dueDate = dueDate;
+        await transaction.save();
+
+        // Update book status
+        const book = await Book.findById(transaction.book_id._id);
+        book.status = 'borrowed';
+        await book.save();
+
+        res.json({ message: 'Borrow approved', transaction });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Admin Reject Borrow
+app.post('/admin/borrow/reject', async (req, res) => {
+    const { transactionId } = req.body;
+    try {
+        const transaction = await BorrowTransaction.findById(transactionId).populate('book_id');
+        if (!transaction) throw new Error('Transaction not found');
+
+        transaction.status = 'rejected';
+        await transaction.save();
+
+        // Revert book status
+        const book = await Book.findById(transaction.book_id._id);
+        book.status = 'available';
+        await book.save();
+
+        res.json({ message: 'Borrow rejected', transaction });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Admin Confirm Return
+app.post('/admin/return/confirm', async (req, res) => {
+    const { transactionId } = req.body;
+    try {
+        const transaction = await BorrowTransaction.findById(transactionId).populate('book_id');
+        if (!transaction) throw new Error('Transaction not found');
+
+        transaction.status = 'returned';
+        transaction.returnDate = new Date();
+        await transaction.save();
+
+        const book = await Book.findById(transaction.book_id._id);
+        book.status = 'available';
+        await book.save();
+
+        res.json({ message: 'Return confirmed', transaction });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// 6. Get My Books / History
 app.get('/history/:userId', async (req, res) => {
     const { userId } = req.params;
     try {
+        // Get active or pending transactions
+        console.log(`Fetching history for user: ${userId}`);
         const transactions = await BorrowTransaction.find({
             user_id: userId,
-            returnDate: { $exists: false }
+            status: { $in: ['pending', 'approved', 'return_pending', 'returned', 'rejected'] }
         }).populate('book_id');
 
-        // Return both book info and borrowDate
-        const history = transactions.map(t => ({
-            _id: t.book_id._id,
-            title: t.book_id.title,
-            author: t.book_id.author,
-            image: t.book_id.image,
-            status: t.book_id.status, // Should be 'borrowed'
-            borrowDate: t.borrowDate
-        }));
+        console.log(`Found ${transactions.length} transactions`);
+
+        // Filter out transactions where the book might have been deleted (book_id is null)
+        const validTransactions = transactions.filter(t => {
+            if (!t.book_id) console.warn(`Found orphan transaction: ${t._id}`);
+            return t.book_id;
+        });
+
+        console.log(`Valid transactions: ${validTransactions.length}`);
+
+        const history = validTransactions.map(t => {
+            let dueDate = t.dueDate;
+            if (!dueDate && t.borrowDate && (t.status === 'approved' || t.status === 'borrowed')) {
+                const d = new Date(t.borrowDate);
+                d.setDate(d.getDate() + 7);
+                dueDate = d;
+            } else if (!dueDate && (t.status === 'approved' || t.status === 'borrowed')) {
+                // Fallback if even borrowDate is missing for some reason
+                const d = new Date();
+                d.setDate(d.getDate() + 7);
+                dueDate = d;
+            }
+
+            return {
+                _id: t.book_id._id,
+                transactionId: t._id, // Unique Key for React List
+                title: t.book_id.title,
+                author: t.book_id.author,
+                image: t.book_id.image,
+                status: t.status,
+                borrowDate: t.borrowDate,
+                dueDate: dueDate
+            };
+        });
         res.json(history);
     } catch (err) {
+        console.error('History Endpoint Error:', err); // Debug Log
         res.status(500).json({ error: err.message });
     }
 });
@@ -313,23 +422,38 @@ app.delete('/admin/books/:id', async (req, res) => {
     try {
         const deletedBook = await Book.findByIdAndDelete(id);
         if (!deletedBook) return res.status(404).json({ error: 'Book not found' });
-
-        // Optional: Clean up related transactions?
-        // await BorrowTransaction.deleteMany({ book_id: id });
-
         res.json({ message: 'Book deleted successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// 9. Get Active Borrows (Admin)
+// 9. Get Active Borrows/Requests (Admin)
 app.get('/admin/borrows', async (req, res) => {
     try {
-        const borrows = await BorrowTransaction.find({ returnDate: { $exists: false } })
+        // Get all except returned/rejected (so pending, approved, return_pending)
+        const borrows = await BorrowTransaction.find({
+            status: { $in: ['pending', 'approved', 'return_pending'] }
+        })
             .populate('user_id', 'name email')
             .populate('book_id', 'title');
-        res.json(borrows);
+
+        const borrowsWithDueDates = borrows.map(b => {
+            // For pending requests, we don't have a due date yet, show N/A or projected
+            let dueDate = b.dueDate;
+            if (!dueDate && b.borrowDate) {
+                const d = new Date(b.borrowDate);
+                d.setDate(d.getDate() + 7);
+                dueDate = d;
+            }
+
+            return {
+                ...b.toObject(),
+                dueDate
+            };
+        });
+
+        res.json(borrowsWithDueDates);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

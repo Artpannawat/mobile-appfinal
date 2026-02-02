@@ -1,173 +1,422 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { StatusBar, ScrollView, RefreshControl, TouchableOpacity, Image } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { StatusBar, ScrollView, RefreshControl, TouchableOpacity, Image, Alert, View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Box } from '@/components/ui/box';
-import { Text } from '@/components/ui/text';
-import { HStack } from '@/components/ui/hstack';
-import { VStack } from '@/components/ui/vstack';
-import { Spinner } from '@/components/ui/spinner';
-import { Heading } from '@/components/ui/heading';
-import api from '../../utils/api';
+import api from '@/utils/api';
+import { useFocusEffect } from 'expo-router';
 
 type Book = {
     _id: string;
+    transactionId: string;
     title: string;
     author: string;
-    status: 'available' | 'borrowed';
+    status: 'available' | 'borrowed' | 'pending' | 'approved' | 'return_pending' | 'returned' | 'rejected';
     borrowDate?: string;
+    dueDate?: string;
     image?: string;
 };
 
+// Helper for image URLs
+const getBookImage = (book: any) => {
+    if (book.image) {
+        if (book.image.startsWith('http')) return book.image;
+        if (book.image.startsWith('/uploads')) {
+            const baseUrl = api.defaults.baseURL || 'http://localhost:3000';
+            // Clean up double slashes just in case
+            const cleanPath = book.image.startsWith('/') ? book.image : `/${book.image}`;
+            return `${baseUrl.replace(/\/$/, '')}${cleanPath}`;
+        }
+    }
+    return 'https://via.placeholder.com/150'; // Fallback
+};
+
 export default function MyBooksTab() {
-    const [books, setBooks] = useState<Book[]>([]);
+    const [books, setBooks] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
-    const router = useRouter();
+    const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+
+    // Filter books based on active tab
+    const filteredBooks = books.filter(book => {
+        if (activeTab === 'active') {
+            return ['pending', 'approved', 'borrowed', 'return_pending'].includes(book.status);
+        } else {
+            return ['returned', 'rejected'].includes(book.status);
+        }
+    });
 
     const onRefresh = useCallback(() => {
         setRefreshing(true);
-        fetchMyBooks().then(() => setRefreshing(false));
+        if (userId) {
+            fetchMyBooks(userId).then(() => setRefreshing(false));
+        } else {
+            setRefreshing(false);
+        }
     }, [userId]);
 
     useEffect(() => {
-        AsyncStorage.getItem('userId').then(id => {
-            if (id) setUserId(id);
-        });
+        const loadUser = async () => {
+            try {
+                const id = await AsyncStorage.getItem('userId');
+                if (id) {
+                    setUserId(id);
+                    fetchMyBooks(id);
+                } else {
+                    // Handle no user logic if needed
+                }
+            } catch (e) {
+                console.error("Failed to load user", e);
+            }
+        };
+        loadUser();
     }, []);
 
-    const fetchMyBooks = async () => {
-        if (!userId) return;
+    const fetchMyBooks = async (id: string) => {
         try {
-            setLoading(true);
-            const response = await api.get(`/history/${userId}`);
-            setBooks(response.data);
+            // Only show loading spinner on initial empty load
+            if (books.length === 0) setLoading(true);
+
+            // Fetch history which should include all necessary statuses
+            const response = await api.get(`/history/${id}`);
+
+            // Defensive coding: Ensure every item has a unique transactionId
+            const safeData = response.data.map((item: any, index: number) => ({
+                ...item,
+                transactionId: item.transactionId || `${item._id}-${index}-${Date.now()}`
+            }));
+
+            setBooks(safeData);
         } catch (error) {
             console.error('Error fetching my books:', error);
+            // Alert.alert('Error', 'Could not load your books.');
         } finally {
             setLoading(false);
         }
     };
 
-    useFocusEffect(
-        useCallback(() => {
-            if (userId) fetchMyBooks();
-        }, [userId])
-    );
-
     const handleReturn = async (bookId: string) => {
+        if (!userId) return;
         try {
-            const userId = await AsyncStorage.getItem('userId');
-            if (!userId) return;
             await api.post('/return', { userId, bookId });
-            setBooks(prevBooks => prevBooks.filter(b => b._id !== bookId));
-            fetchMyBooks();
+            Alert.alert('Success', 'Return request submitted successfully');
+            fetchMyBooks(userId);
         } catch (error: any) {
-            console.error('Error returning book:', error);
-            fetchMyBooks();
+            Alert.alert('Error', 'Failed to return book');
+            console.error(error);
         }
     };
 
     const formatDate = (dateString?: string) => {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { // Changed to EN for global appeal or keep TH if preferred
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
+        if (!dateString) return 'N/A';
+        return new Date(dateString).toLocaleDateString('en-GB', {
+            day: 'numeric', month: 'short', year: 'numeric'
         });
     };
 
-    const getBookImage = (item: any) => {
-        if (item.image && (item.image.startsWith('http') || item.image.startsWith('https'))) {
-            return item.image;
-        }
-        const seed = item._id.substring(0, 5);
-        return `https://picsum.photos/seed/${seed}/200/300`;
+    // --- RENDER HELPERS ---
+    const getStatusColor = (status: string) => {
+        if (status === 'borrowed' || status === 'approved') return '#dcfce7'; // green-100
+        if (status === 'pending') return '#fef9c3'; // yellow-100
+        return '#f3f4f6'; // gray-100
+    };
+
+    const getStatusTextColor = (status: string) => {
+        if (status === 'borrowed' || status === 'approved') return '#15803d'; // green-700
+        if (status === 'pending') return '#a16207'; // yellow-700
+        return '#374151'; // gray-700
     };
 
     return (
-        <Box className="flex-1 bg-background-50">
-            <StatusBar barStyle="dark-content" />
+        <View style={styles.container}>
+            <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
 
             {/* Header */}
-            <Box className="pt-16 pb-6 px-6 bg-white rounded-b-3xl shadow-sm z-10 mb-4">
-                <Heading size="2xl" className="text-secondary-900 mb-1">My Shelf</Heading>
-                <Text className="text-typography-500">Books currently in your possession</Text>
-            </Box>
+            <View style={styles.header}>
+                <Text style={styles.headerTitle}>My Shelf</Text>
+                <Text style={styles.headerSubtitle}>Books currently in your possession</Text>
+            </View>
+
+            {/* Tabs */}
+            <View style={styles.tabContainer}>
+                <TouchableOpacity
+                    style={[styles.tabButton, activeTab === 'active' && styles.activeTabButton]}
+                    onPress={() => setActiveTab('active')}
+                >
+                    <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>Current Loans</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.tabButton, activeTab === 'history' && styles.activeTabButton]}
+                    onPress={() => setActiveTab('history')}
+                >
+                    <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>History</Text>
+                </TouchableOpacity>
+            </View>
 
             {loading && !refreshing ? (
-                <Box className="flex-1 justify-center items-center">
-                    <Spinner size="large" color="$primary500" />
-                </Box>
+                <View style={styles.centerContent}>
+                    <ActivityIndicator size="large" color="#007AFF" />
+                </View>
             ) : (
-                books.length === 0 ? (
-                    <Box className="flex-1 justify-center items-center px-8 opacity-70">
-                        <Text size="5xl" className="mb-4 grayscale">📚</Text>
-                        <Heading size="lg" className="text-typography-900 text-center mb-2">No Books Yet</Heading>
-                        <Text className="text-typography-500 text-center">
-                            Go to Browse tab and find something amazing to read!
+                filteredBooks.length === 0 ? (
+                    <View style={styles.emptyState}>
+                        <Text style={styles.emptyStateEmoji}>📚</Text>
+                        <Text style={styles.emptyStateTitle}>No {activeTab === 'active' ? 'Active Loans' : 'History'} Yet</Text>
+                        <Text style={styles.emptyStateDescription}>
+                            {activeTab === 'active' ? 'Go to Browse tab to borrow books!' : 'Your past returns will render here.'}
                         </Text>
-                    </Box>
+                    </View>
                 ) : (
                     <ScrollView
-                        contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
-                        refreshControl={
-                            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />
-                        }
+                        style={styles.scrollView}
+                        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />}
+                        contentContainerStyle={styles.scrollContent}
                     >
-                        {books.map((item) => (
-                            <Box
-                                key={item._id}
-                                className="bg-white p-4 mb-4 rounded-2xl shadow-sm border border-outline-100"
-                            >
-                                <HStack space="md" className="items-start">
-                                    <Box className="w-20 h-32 rounded-lg overflow-hidden bg-gray-200 shadow-sm">
-                                        <Image
-                                            source={{ uri: getBookImage(item) }}
-                                            style={{ width: '100%', height: '100%' }}
-                                            resizeMode="cover"
-                                        />
-                                    </Box>
+                        {filteredBooks.map((item) => (
+                            <View key={item.transactionId} style={styles.card}>
+                                {/* Book Cover */}
+                                <View style={styles.coverImageContainer}>
+                                    <Image
+                                        source={{ uri: getBookImage(item) }}
+                                        style={styles.coverImage}
+                                        resizeMode="cover"
+                                    />
+                                </View>
 
-                                    <VStack className="flex-1 justify-between h-32">
-                                        <VStack>
-                                            <Heading size="md" numberOfLines={2} className="text-typography-900 mb-1">{item.title}</Heading>
-                                            <Text size="sm" className="text-typography-500 font-medium">{item.author}</Text>
-                                        </VStack>
+                                {/* Book Details */}
+                                <View style={styles.cardContent}>
+                                    <View>
+                                        <Text style={styles.bookTitle} numberOfLines={2}>
+                                            {item.title}
+                                        </Text>
+                                        <Text style={styles.bookAuthor}>
+                                            {item.author}
+                                        </Text>
+                                    </View>
 
-                                        <VStack space="sm">
-                                            <HStack className="items-center bg-orange-50 self-start px-2 py-1 rounded-md">
-                                                <Text size="xs" className="text-orange-700 font-bold">
-                                                    Due: {formatDate(item.borrowDate)}
+                                    <View style={styles.statusSection}>
+                                        {/* Status Badge */}
+                                        <View style={styles.statusRow}>
+                                            <Text style={styles.statusLabel}>Status:</Text>
+                                            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+                                                <Text style={[styles.statusText, { color: getStatusTextColor(item.status) }]}>
+                                                    {item.status}
                                                 </Text>
-                                            </HStack>
+                                            </View>
+                                        </View>
 
+                                        {/* Due Date (Borrowed/Approved only) */}
+                                        {(item.status === 'approved' || item.status === 'borrowed') && (
+                                            <View style={styles.dueDateContainer}>
+                                                <Text style={styles.dueDateText}>
+                                                    Due: {formatDate(item.dueDate)}
+                                                </Text>
+                                            </View>
+                                        )}
+
+                                        {/* Return Button */}
+                                        {(item.status === 'approved' || item.status === 'borrowed') && activeTab === 'active' && (
                                             <TouchableOpacity
                                                 onPress={() => handleReturn(item._id)}
-                                                style={{
-                                                    backgroundColor: '#FFF0F0',
-                                                    paddingVertical: 8,
-                                                    borderRadius: 10,
-                                                    alignItems: 'center',
-                                                    borderWidth: 1,
-                                                    borderColor: '#FECACA'
-                                                }}
+                                                style={styles.returnButton}
                                             >
-                                                <Text style={{ color: '#DC2626', fontWeight: '700', fontSize: 13 }}>
-                                                    Return Book
-                                                </Text>
+                                                <Text style={styles.returnButtonText}>Return Book</Text>
                                             </TouchableOpacity>
-                                        </VStack>
-                                    </VStack>
-                                </HStack>
-                            </Box>
+                                        )}
+                                    </View>
+                                </View>
+                            </View>
                         ))}
-                        <Box className="h-10" />
+                        <View style={{ height: 40 }} />
                     </ScrollView>
                 )
             )}
-        </Box>
+        </View>
     );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#f9fafb', // background-50
+    },
+    header: {
+        paddingTop: 64, // pt-16
+        paddingHorizontal: 24, // px-6
+        paddingBottom: 24, // pb-6
+        backgroundColor: 'white',
+        borderBottomLeftRadius: 24, // rounded-b-3xl
+        borderBottomRightRadius: 24, // rounded-b-3xl
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 2,
+        marginBottom: 16, // mb-4
+        zIndex: 10,
+    },
+    headerTitle: {
+        fontSize: 32, // text-2xl
+        fontWeight: 'bold',
+        color: '#1a1a1a', // text-secondary-900
+        marginBottom: 4, // mb-1
+    },
+    headerSubtitle: {
+        fontSize: 16,
+        color: '#737373', // text-typography-500
+        marginBottom: 16, // mb-4
+    },
+    tabContainer: {
+        flexDirection: 'row',
+        backgroundColor: '#f3f4f6', // bg-background-100
+        padding: 4, // p-1
+        borderRadius: 12, // rounded-xl
+        marginHorizontal: 24, // px-6
+        marginBottom: 16,
+    },
+    tabButton: {
+        flex: 1,
+        paddingVertical: 8, // py-2
+        borderRadius: 8, // rounded-lg
+        alignItems: 'center',
+    },
+    activeTabButton: {
+        backgroundColor: 'white',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
+    },
+    tabText: {
+        fontWeight: 'bold',
+        color: '#9ca3af', // text-typography-400
+    },
+    activeTabText: {
+        color: '#1a1a1a', // text-typography-900
+    },
+    centerContent: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    scrollView: {
+        flex: 1,
+    },
+    scrollContent: {
+        paddingHorizontal: 20, // padding: 20
+        paddingBottom: 100,
+    },
+    emptyState: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 32, // px-8
+        opacity: 0.7,
+        marginTop: 50, // Adjust as needed for vertical centering
+    },
+    emptyStateEmoji: {
+        fontSize: 60, // text-5xl
+        marginBottom: 16, // mb-4
+        opacity: 0.7, // grayscale effect
+    },
+    emptyStateTitle: {
+        fontSize: 24, // text-lg
+        fontWeight: 'bold',
+        color: '#1a1a1a', // text-typography-900
+        textAlign: 'center',
+        marginBottom: 8, // mb-2
+    },
+    emptyStateDescription: {
+        fontSize: 16,
+        color: '#737373', // text-typography-500
+        textAlign: 'center',
+    },
+    card: {
+        flexDirection: 'row',
+        backgroundColor: 'white',
+        padding: 16,
+        marginBottom: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#e5e5e5',
+    },
+    coverImageContainer: {
+        width: 80,
+        height: 120,
+        borderRadius: 8,
+        overflow: 'hidden',
+        backgroundColor: '#eee',
+        marginRight: 16,
+    },
+    coverImage: {
+        width: '100%',
+        height: '100%',
+    },
+    cardContent: {
+        flex: 1,
+        justifyContent: 'space-between',
+        paddingVertical: 4,
+    },
+    bookTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#1a1a1a',
+        marginBottom: 4,
+    },
+    bookAuthor: {
+        fontSize: 14,
+        color: '#666',
+        fontWeight: '500',
+    },
+    statusSection: {
+        marginTop: 8,
+    },
+    statusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+    },
+    statusLabel: {
+        fontSize: 12,
+        color: '#666',
+        marginRight: 8,
+    },
+    statusBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 4,
+    },
+    statusText: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+    },
+    dueDateContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#fff7ed',
+        alignSelf: 'flex-start',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+        marginTop: 8,
+        marginBottom: 8,
+    },
+    dueDateText: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        color: '#c2410c',
+    },
+    returnButton: {
+        backgroundColor: '#EF4444',
+        padding: 8,
+        borderRadius: 8,
+        marginTop: 4,
+        alignItems: 'center',
+    },
+    returnButtonText: {
+        color: 'white',
+        fontWeight: 'bold',
+        fontSize: 12,
+    },
+});

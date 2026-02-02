@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { StatusBar, ScrollView, RefreshControl, TouchableOpacity, Dimensions, Image } from 'react-native';
+import { StatusBar, ScrollView, RefreshControl, TouchableOpacity, Dimensions, Image, TextInput } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Box } from '@/components/ui/box';
@@ -9,7 +9,6 @@ import { HStack } from '@/components/ui/hstack';
 import { VStack } from '@/components/ui/vstack';
 import { Spinner } from '@/components/ui/spinner';
 import { Heading } from '@/components/ui/heading';
-import { LinearGradient } from 'expo-linear-gradient'; // Ensure this is installed or use Box bg
 import api from '../../utils/api';
 
 type Book = {
@@ -24,13 +23,14 @@ type Book = {
 export default function HomeTab() {
     const [books, setBooks] = useState<Book[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
     const [refreshing, setRefreshing] = useState(false);
     const [userId, setUserId] = useState<string | null>(null);
 
     const onRefresh = useCallback(() => {
         setRefreshing(true);
-        fetchBooks().then(() => setRefreshing(false));
-    }, []);
+        fetchBooks(searchQuery).then(() => setRefreshing(false));
+    }, [searchQuery]);
     const router = useRouter();
 
     useEffect(() => {
@@ -43,14 +43,27 @@ export default function HomeTab() {
             router.replace('/login');
         } else {
             setUserId(storedUserId);
+            // Initial fetch
             fetchBooks();
         }
     };
 
-    const fetchBooks = async () => {
+    // Debounce Search
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(() => {
+            fetchBooks(searchQuery);
+        }, 150); // 150ms delay for snappier feedback
+
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchQuery]);
+
+    const fetchBooks = async (query: string = '') => {
         try {
             setLoading(true);
-            const response = await api.get('/books');
+            const endpoint = query
+                ? `/books?search=${encodeURIComponent(query)}`
+                : '/books';
+            const response = await api.get(endpoint);
             setBooks(response.data);
         } catch (error) {
             console.error('Error fetching books:', error);
@@ -111,9 +124,27 @@ export default function HomeTab() {
                         <Heading size="2xl" className="text-typography-900">Library</Heading>
                     </VStack>
                 </HStack>
-                {/* Search Bar Placeholder (Visual Only) */}
+                {/* Search Bar */}
                 <Box className="bg-background-50 p-3 rounded-xl border border-outline-100 flex-row items-center">
-                    <Text className="text-typography-400 ml-2">🔍 Search for books...</Text>
+                    <Text className="text-typography-400 ml-2 mr-2">🔍</Text>
+                    <TextInput
+                        placeholder="Search for books..."
+                        style={{ flex: 1, fontFamily: 'System', color: '#1f2937' }}
+                        value={searchQuery}
+                        onChangeText={text => {
+                            setSearchQuery(text);
+                            // Real-time search with manual debounce simulation
+                            // In a real app, use lodash.debounce or useDebounce hook
+                            // For simplicity here, we rely on React's state update speed or a timeout
+                        }}
+                        // Trigger search on text change via useEffect or custom logic
+                        returnKeyType="search"
+                    />
+                    {searchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => { setSearchQuery(''); fetchBooks(''); }}>
+                            <Text className="text-gray-400 text-xs">✕</Text>
+                        </TouchableOpacity>
+                    )}
                 </Box>
             </Box>
 

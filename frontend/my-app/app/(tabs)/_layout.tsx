@@ -20,8 +20,8 @@ export default function TabLayout() {
             tabBarActiveTintColor: activeColor,
             headerShown: false,
             tabBarStyle: {
-                height: 70, // Increased height
-                paddingBottom: 10,
+                height: 80, // Increased height for safe area
+                paddingBottom: 20, // Avoid system nav overlap
                 paddingTop: 10,
                 borderTopWidth: 0,
                 elevation: 10,
